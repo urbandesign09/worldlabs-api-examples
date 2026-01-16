@@ -25,8 +25,6 @@
         <img id="image-preview-img" />
         <button id="clear-image">X</button>
       </label>
-      <!-- <div id="image-preview" class="preview">
-      </div> -->
       <label>
         <input id="auto-enhance" type="checkbox" checked />
         Auto-enhance text prompt
@@ -82,7 +80,7 @@
       import * as THREE from "three";
       import { SparkRenderer, SplatMesh, SplatLoader, SparkControls } from "@sparkjsdev/spark";
 
-      const apiBaseUrl = "http://api-autopush.worldlabs.ai/marble/v1";
+      const apiBaseUrl = "http://api.worldlabs.ai/marble/v1";
 
       const apiKeyInput = document.getElementById("api-key");
       const worldsBody = document.getElementById("worlds-body");
@@ -100,7 +98,6 @@
       const worldViewerClose = document.getElementById("world-viewer-close");
 
       const scene = new THREE.Scene();
-      // scene.background = new THREE.Color(0xFF0000);
       const camera = new THREE.PerspectiveCamera(65, canvas.clientWidth / canvas.clientHeight, 0.01, 1000);
       scene.add(camera);
       const renderer = new THREE.WebGLRenderer({ canvas });
@@ -284,10 +281,8 @@
       async function viewWorld(world) {
         if (currentWorld) {
           scene.remove(currentWorld);
-          console.log("Children of scene", scene.children);
           currentWorld.dispose();
           currentWorld = null;
-          console.log("Current world disposed");
         }
 
         if (!world) {
@@ -302,7 +297,6 @@
         const loader = new SplatLoader();
         const packedSplats = await loader.loadAsync(url, (progressEvent) => {
           document.getElementById("progress-bar").style.display = "block";
-          console.log("Progress", progressEvent.loaded, progressEvent.total);
           const progress = Math.max(0, Math.min(1, progressEvent.loaded / progressEvent.total));
           document.getElementById("progress-fill").style.width = `${progress * 100}%`;
         });

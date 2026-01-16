@@ -1,3 +1,5 @@
+// Generate a World Labs world from an image prompt.
+
 import fs from "fs/promises";
 
 // Get World Labs API key from environment variable
@@ -7,8 +9,9 @@ if (!WLT_API_KEY) {
   process.exit(1);
 }
 
-const apiBaseUrl = "http://api-autopush.worldlabs.ai/marble/v1";
+const apiBaseUrl = "http://api.worldlabs.ai/marble/v1";
 
+// Send an API request and parse JSON response.
 async function apiFetch(path, options = {}) {
   const response = await fetch(`${apiBaseUrl}/${path}`, {
     ...options,
@@ -25,6 +28,7 @@ async function apiFetch(path, options = {}) {
   return body;
 }
 
+// Start a world generation operation from text or image.
 async function generateWorld(textPrompt, imageBase64, autoEnhance, draft, seed) {
   if (!textPrompt && !imageBase64) {
     throw new Error("Enter a text prompt or select an image first.");
@@ -50,15 +54,18 @@ async function generateWorld(textPrompt, imageBase64, autoEnhance, draft, seed) 
   return operation.operation_id;
 }
 
+// Fetch operation status by ID.
 async function getOperation(operationId) {
   return await apiFetch(`operations/${operationId}`);
 }
 
+// Fetch world details by ID.
 async function getWorld(worldId) {
   return await apiFetch(`worlds/${worldId}`);
 }
 
 
+// Run the CLI flow for image-based generation.
 const imageFile = process.argv[2];
 if (!imageFile) {
   console.error("Usage: node generate-world-from-image.js my-image.png");

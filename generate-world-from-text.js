@@ -1,3 +1,4 @@
+// Generate a World Labs world from a text prompt.
 
 // Get World Labs API key from environment variable
 const WLT_API_KEY = process.env.WLT_API_KEY;
@@ -6,8 +7,9 @@ if (!WLT_API_KEY) {
   process.exit(1);
 }
 
-const apiBaseUrl = "http://api-autopush.worldlabs.ai/marble/v1";
+const apiBaseUrl = "http://api.worldlabs.ai/marble/v1";
 
+// Send an API request and parse JSON response.
 async function apiFetch(path, options = {}) {
   const response = await fetch(`${apiBaseUrl}/${path}`, {
     ...options,
@@ -24,6 +26,7 @@ async function apiFetch(path, options = {}) {
   return body;
 }
 
+// Start a world generation operation from text.
 async function generateWorld(textPrompt, autoEnhance, draft, seed) {
   if (!textPrompt) {
     throw new Error("Enter a text prompt first.");
@@ -45,15 +48,18 @@ async function generateWorld(textPrompt, autoEnhance, draft, seed) {
   return operation.operation_id;
 }
 
+// Fetch operation status by ID.
 async function getOperation(operationId) {
   return await apiFetch(`operations/${operationId}`);
 }
 
+// Fetch world details by ID.
 async function getWorld(worldId) {
   return await apiFetch(`worlds/${worldId}`);
 }
 
 
+// Run the CLI flow for text-based generation.
 const textPrompt = process.argv[2];
 if (!textPrompt) {
   console.error("Usage: node generate-world-from-text.js 'A cozy modern interior jazz lounge'");
