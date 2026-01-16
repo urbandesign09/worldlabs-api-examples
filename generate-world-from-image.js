@@ -9,7 +9,7 @@ if (!WLT_API_KEY) {
   process.exit(1);
 }
 
-const apiBaseUrl = "http://api.worldlabs.ai/marble/v1";
+const apiBaseUrl = "https://api.worldlabs.ai/marble/v1";
 
 // Send an API request and parse JSON response.
 async function apiFetch(path, options = {}) {

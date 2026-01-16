@@ -13,7 +13,7 @@ if not WLT_API_KEY:
     print("Please set environment variable WLT_API_KEY to your World Labs API key")
     sys.exit(1)
 
-API_BASE_URL = "http://api.worldlabs.ai/marble/v1"
+API_BASE_URL = "https://api.worldlabs.ai/marble/v1"
 
 
 def api_fetch(path, method="GET", body=None, headers=None):
