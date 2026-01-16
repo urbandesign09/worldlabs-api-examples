@@ -1,0 +1,334 @@
+<html>
+  <head>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+
+  <body>
+    <h1>World Labs API example</h1>
+
+    <div class="section">
+      <label>
+        API key:
+        <input id="api-key" type="text" placeholder="Paste your API key" />
+      </label>
+      <em>Warning: Never embed your API key directly in your client-side code, or others can see it.</em>
+    </div>
+
+    <div class="section">
+      <label>
+        Text prompt:
+        <input id="text-prompt" type="text" placeholder="A cozy modern interior jazz lounge" />
+      </label>
+      <label>
+        Image prompt:
+        <input id="image-file" type="file" accept=".png,.jpg,.jpeg,.webp" />
+        <img id="image-preview-img" />
+        <button id="clear-image">X</button>
+      </label>
+      <!-- <div id="image-preview" class="preview">
+      </div> -->
+      <label>
+        <input id="auto-enhance" type="checkbox" checked />
+        Auto-enhance text prompt
+      </label>
+      <label>
+        <input id="draft" type="checkbox" checked />
+        Draft mode (faster generation, lower quality)
+      </label>
+      <button id="generate-world" class="block-button">Generate World</button>
+    </div>
+
+    <h2>Worlds</h2>
+
+    <div class="section">
+      <button id="list-worlds" class="block-button">List Worlds</button>
+
+      <table id="worlds-table">
+        <thead>
+          <tr>
+            <th>World ID</th>
+            <th>Display Name</th>
+            <th>Thumbnail</th>
+            <th></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="worlds-body">
+          <tr class="empty-row">
+            <td colspan="5">No worlds loaded yet. List or generate a new world.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="world-viewer">
+      <div id="progress-bar">
+        <div id="progress-fill"></div>
+      </div>
+      <canvas id="world-viewer-canvas"></canvas>
+      <button id="world-viewer-close" class="close">X</button>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.178.0/three.module.js",
+          "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/0.1.10/spark.module.js"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { SparkRenderer, SplatMesh, SplatLoader, SparkControls } from "@sparkjsdev/spark";
+
+      const apiBaseUrl = "http://api-autopush.worldlabs.ai/marble/v1";
+
+      const apiKeyInput = document.getElementById("api-key");
+      const worldsBody = document.getElementById("worlds-body");
+      const listWorldsButton = document.getElementById("list-worlds");
+      const textPromptInput = document.getElementById("text-prompt");
+      const generateButton = document.getElementById("generate-world");
+      const imageInput = document.getElementById("image-file");
+      const imagePreviewInput = document.getElementById("image-preview");
+      const imagePreview = document.getElementById("image-preview-img");
+      const clearImageButton = document.getElementById("clear-image");
+      const autoEnhanceCheckbox = document.getElementById("auto-enhance");
+      const draftCheckbox = document.getElementById("draft");
+      const worldViewer = document.getElementById("world-viewer");
+      const canvas = document.getElementById("world-viewer-canvas");
+      const worldViewerClose = document.getElementById("world-viewer-close");
+
+      const scene = new THREE.Scene();
+      // scene.background = new THREE.Color(0xFF0000);
+      const camera = new THREE.PerspectiveCamera(65, canvas.clientWidth / canvas.clientHeight, 0.01, 1000);
+      scene.add(camera);
+      const renderer = new THREE.WebGLRenderer({ canvas });
+
+      function resizeRendererToCanvas() {
+        camera.aspect = worldViewer.clientWidth / worldViewer.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(worldViewer.clientWidth, worldViewer.clientHeight);
+      }
+      
+      window.addEventListener("resize", resizeRendererToCanvas, false);
+      resizeRendererToCanvas();
+
+      const spark = new SparkRenderer({ renderer, view: { sort32: true } });
+      scene.add(spark);
+
+      async function apiFetch(path, options = {}) {
+        const apiKey = apiKeyInput.value.trim();
+        if (!apiKey) {
+          throw new Error("Enter your API key first.");
+        }
+
+        const response = await fetch(`${apiBaseUrl}/${path}`, {
+          ...options,
+          headers: {
+            "WLT-Api-Key": apiKey,
+            "Content-Type": "application/json",
+            ...options.headers,
+          },
+        });
+        const body = await response.json();
+        if (!response.ok) {
+          throw new Error(`${path}: ${response.status} ${JSON.stringify(body)}`);
+        }
+        return body;
+      }
+
+      async function generateWorld(textPrompt, imageBytes, autoEnhance, draft) {
+        if (!textPrompt && !imageBytes) {
+          throw new Error("Enter a text prompt or select an image first.");
+        }
+
+        const worldPrompt = {
+          type: imageBytes ? "image" : "text",
+          text_prompt: textPrompt || null,
+          disable_recaption: !autoEnhance,
+          image_prompt: imageBytes ? {
+            source: "data_base64",
+            data_base64: imageBytes.toBase64(),
+          } : null,
+        };
+        const operation = await apiFetch("worlds:generate", {
+          method: "POST",
+          body: JSON.stringify({
+            world_prompt: worldPrompt,
+            model: draft ? "Marble 0.1-mini" : "Marble 0.1-plus",
+          }),
+        });
+        return operation.operation_id;
+      }
+
+      async function getOperation(operationId) {
+        return await apiFetch(`operations/${operationId}`);
+      }
+
+      async function getWorld(worldId) {
+        return (await apiFetch(`worlds/${worldId}`));
+      }
+
+      function createWorldRow(world) {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${world.world_id}</td>
+          <td>${world.display_name || "-"}</td>
+          <td>
+            <a href="${world.assets.thumbnail_url}" target="_blank" rel="noopener noreferrer">
+              <img src="${world.assets.thumbnail_url}" />
+            </a>
+          </td>
+          <td><a href="${world.world_marble_url}" target="_blank">Open in Marble</a></td>
+          <td class="world-actions"></td>
+        `;
+
+        const caption = world?.assets?.caption;
+        const thumbnail = row.querySelector("img");
+        thumbnail.title = caption;
+
+        const viewWorldButton = document.createElement("button");
+        viewWorldButton.textContent = "View World";
+        viewWorldButton.onclick = () => viewWorld(world);
+        row.querySelector(".world-actions")?.appendChild(viewWorldButton);
+
+        return row;
+      }
+
+      async function listWorlds() {
+        const body = await apiFetch("worlds:list", {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        return body.worlds;
+      }
+
+      listWorldsButton.onclick = async () => {
+        try {
+          const worlds = await listWorlds();
+
+          // Clear worlds table and populate returned worlds
+          worldsBody.innerHTML = "";
+          for (const world of worlds) {
+            if (world.assets) {
+              worldsBody.appendChild(createWorldRow(world));
+            }
+          }
+        } catch (error) {
+          console.error(error);
+          alert(error.message);
+        }
+      };
+
+      let imageBytes = null;
+
+      async function setInputImage(file) {
+        if (imagePreview.src) {
+          URL.revokeObjectURL(imagePreview.src);
+          imagePreview.removeAttribute("src");
+          imageBytes = null;
+          imageInput.value = "";
+        }
+
+        if (file) {
+          imageBytes = new Uint8Array(await file.arrayBuffer());
+          imagePreview.src = URL.createObjectURL(file);
+        }
+      }
+
+      imageInput.onchange = async () => {
+        await setInputImage(imageInput.files?.[0]);
+      };
+
+      clearImageButton.onclick = async () => {
+        await setInputImage(null);
+      };
+
+      generateButton.onclick = async () => {
+        try {
+          generateButton.disabled = true;
+          generateButton.textContent = "Generating...";
+          const textPrompt = textPromptInput.value.trim()
+          const autoEnhance = autoEnhanceCheckbox.checked;
+          const draft = draftCheckbox.checked;
+          const operationId = await generateWorld(textPrompt, imageBytes, autoEnhance, draft);
+
+          // Poll operation state every 5 seconds until done
+          let operation;
+          while (true) {
+            operation = await getOperation(operationId);
+            if (operation.done) {
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+          }
+
+          const worldId = operation.response.world_id;
+          const world = await getWorld(worldId);
+          console.log("World", world);
+          worldsBody.prepend(createWorldRow(world));
+
+        } catch (error) {
+          console.error(error);
+          alert(error.message);
+          
+        } finally {
+          generateButton.disabled = false;
+          generateButton.textContent = "Generate World";
+        }
+      };
+
+      let currentWorld = null;
+
+      async function viewWorld(world) {
+        if (currentWorld) {
+          scene.remove(currentWorld);
+          console.log("Children of scene", scene.children);
+          currentWorld.dispose();
+          currentWorld = null;
+          console.log("Current world disposed");
+        }
+
+        if (!world) {
+          worldViewer.classList.remove("active");
+          return;
+        }
+
+        const version = "full_res"; // or "500k" or "100k"
+        const url = world.assets.splats.spz_urls[version];
+        worldViewer.classList.add("active");
+
+        const loader = new SplatLoader();
+        const packedSplats = await loader.loadAsync(url, (progressEvent) => {
+          document.getElementById("progress-bar").style.display = "block";
+          console.log("Progress", progressEvent.loaded, progressEvent.total);
+          const progress = Math.max(0, Math.min(1, progressEvent.loaded / progressEvent.total));
+          document.getElementById("progress-fill").style.width = `${progress * 100}%`;
+        });
+        document.getElementById("progress-bar").style.display = "none";
+
+        currentWorld = new SplatMesh({ packedSplats });
+        currentWorld.quaternion.set(1, 0, 0, 0);
+        scene.add(currentWorld);
+        
+        camera.position.set(0, 0, 0);
+        camera.quaternion.set(0, 0, 0, 1);
+      }
+
+      worldViewerClose.onclick = () => {
+        viewWorld(null);
+        renderer.render(scene, camera);
+      };
+
+      const controls = new SparkControls({ canvas });
+
+      renderer.setAnimationLoop(() => {
+        if (currentWorld) {
+          controls.update(camera);
+        }
+        renderer.render(scene, camera);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "web-generate-world",
+  "version": "0.1.0",
+  "description": "Generate a world from text and view it in 3D in the web browser",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
