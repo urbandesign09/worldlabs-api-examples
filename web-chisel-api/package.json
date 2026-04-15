@@ -1,9 +1,0 @@
-{
-  "name": "web-chisel-api",
-  "version": "0.1.0",
-  "description": "Standalone browser example for a depth equirect pano workflow",
-  "type": "module",
-  "scripts": {
-    "start": "node server.js"
-  }
-}
