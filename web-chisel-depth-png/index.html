@@ -767,30 +767,37 @@
 
       function renderDepthPano({ cubeResolution, equirectWidth, equirectHeight }) {
         return withHiddenHelpers(() => {
-          const inverseTarget = renderEquirectFromDepth({
-            cubeResolution,
-            equirectWidth,
-            equirectHeight,
-            outputType: THREE.FloatType,
-            fragmentShader: inverseDepthFragmentShader,
-          });
+          let inverseTarget = null;
 
-          const stats = computeDepthStats(inverseTarget, equirectWidth, equirectHeight);
-          inverseTarget.dispose();
+          try {
+            inverseTarget = renderEquirectFromDepth({
+              cubeResolution,
+              equirectWidth,
+              equirectHeight,
+              outputType: THREE.FloatType,
+              fragmentShader: inverseDepthFragmentShader,
+            });
 
-          const logTarget = renderEquirectFromDepth({
-            cubeResolution,
-            equirectWidth,
-            equirectHeight,
-            outputType: THREE.UnsignedByteType,
-            fragmentShader: logDepthFragmentShader,
-            extraUniforms: {
-              zMin: { value: stats.zMin },
-              zMax: { value: stats.zMax },
-            },
-          });
+            const stats = computeDepthStats(inverseTarget, equirectWidth, equirectHeight);
+            inverseTarget.dispose();
+            inverseTarget = null;
 
-          return { target: logTarget, stats };
+            const logTarget = renderEquirectFromDepth({
+              cubeResolution,
+              equirectWidth,
+              equirectHeight,
+              outputType: THREE.UnsignedByteType,
+              fragmentShader: logDepthFragmentShader,
+              extraUniforms: {
+                zMin: { value: stats.zMin },
+                zMax: { value: stats.zMax },
+              },
+            });
+
+            return { target: logTarget, stats };
+          } finally {
+            inverseTarget?.dispose();
+          }
         });
       }
 
@@ -837,34 +844,11 @@
         fragmentShader,
         extraUniforms = {},
       }) {
-        const tempDepthTarget = new THREE.WebGLRenderTarget(cubeResolution, cubeResolution);
-        tempDepthTarget.texture.minFilter = THREE.NearestFilter;
-        tempDepthTarget.texture.magFilter = THREE.NearestFilter;
-        tempDepthTarget.texture.generateMipmaps = false;
-        tempDepthTarget.depthTexture = new THREE.DepthTexture(
-          cubeResolution,
-          cubeResolution,
-          THREE.UnsignedShortType
-        );
-        tempDepthTarget.depthTexture.format = THREE.DepthFormat;
-        tempDepthTarget.depthTexture.type = THREE.UnsignedShortType;
-
-        const cubeTarget = new THREE.WebGLCubeRenderTarget(cubeResolution, {
-          format: THREE.RGBAFormat,
-          type: outputType,
-          generateMipmaps: false,
-          minFilter: THREE.NearestFilter,
-          magFilter: THREE.NearestFilter,
-        });
-
-        const outputTarget = new THREE.WebGLRenderTarget(equirectWidth, equirectHeight, {
-          format: THREE.RGBAFormat,
-          type: outputType,
-          minFilter: THREE.NearestFilter,
-          magFilter: THREE.NearestFilter,
-          generateMipmaps: false,
-        });
-
+        let tempDepthTarget = null;
+        let cubeTarget = null;
+        let outputTarget = null;
+        let screenQuad = null;
+        let equirectQuad = null;
         const faceCamera = new THREE.PerspectiveCamera(90, 1, panoCamera.near, panoCamera.far);
         const panoPosition = new THREE.Vector3();
         const panoQuaternion = new THREE.Quaternion();
@@ -873,63 +857,97 @@
 
         const screenScene = new THREE.Scene();
         const screenCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-        const screenQuad = new THREE.Mesh(
-          new THREE.PlaneGeometry(2, 2),
-          new THREE.ShaderMaterial({
-            vertexShader: fullScreenVertexShader,
-            fragmentShader,
-            uniforms: {
-              cameraNear: { value: faceCamera.near },
-              cameraFar: { value: faceCamera.far },
-              tDepth: { value: tempDepthTarget.depthTexture },
-              ...extraUniforms,
-            },
-          })
-        );
-        screenScene.add(screenQuad);
-
-        for (let faceIndex = 0; faceIndex < 6; faceIndex += 1) {
-          const direction = cubeDirections[faceIndex].clone().applyQuaternion(panoQuaternion);
-          const up = cubeUps[faceIndex].clone().applyQuaternion(panoQuaternion);
-
-          faceCamera.position.copy(panoPosition);
-          faceCamera.up.copy(up);
-          faceCamera.lookAt(panoPosition.clone().add(direction));
-          faceCamera.updateMatrixWorld(true);
-
-          renderer.setRenderTarget(tempDepthTarget);
-          renderer.render(scene, faceCamera);
-
-          renderer.setRenderTarget(cubeTarget, faceIndex);
-          renderer.render(screenScene, screenCamera);
-        }
-
         const equirectScene = new THREE.Scene();
         const equirectCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-        const equirectQuad = new THREE.Mesh(
-          new THREE.PlaneGeometry(2, 2),
-          new THREE.ShaderMaterial({
-            vertexShader: fullScreenVertexShader,
-            fragmentShader: equirectFragmentShader,
-            uniforms: {
-              cubeMap: { value: cubeTarget.texture },
-            },
-          })
-        );
-        equirectScene.add(equirectQuad);
 
-        renderer.setRenderTarget(outputTarget);
-        renderer.render(equirectScene, equirectCamera);
-        renderer.setRenderTarget(null);
+        try {
+          tempDepthTarget = new THREE.WebGLRenderTarget(cubeResolution, cubeResolution);
+          tempDepthTarget.texture.minFilter = THREE.NearestFilter;
+          tempDepthTarget.texture.magFilter = THREE.NearestFilter;
+          tempDepthTarget.texture.generateMipmaps = false;
+          tempDepthTarget.depthTexture = new THREE.DepthTexture(
+            cubeResolution,
+            cubeResolution,
+            THREE.UnsignedShortType
+          );
+          tempDepthTarget.depthTexture.format = THREE.DepthFormat;
+          tempDepthTarget.depthTexture.type = THREE.UnsignedShortType;
 
-        tempDepthTarget.dispose();
-        cubeTarget.dispose();
-        screenQuad.geometry.dispose();
-        screenQuad.material.dispose();
-        equirectQuad.geometry.dispose();
-        equirectQuad.material.dispose();
+          cubeTarget = new THREE.WebGLCubeRenderTarget(cubeResolution, {
+            format: THREE.RGBAFormat,
+            type: outputType,
+            generateMipmaps: false,
+            minFilter: THREE.NearestFilter,
+            magFilter: THREE.NearestFilter,
+          });
 
-        return outputTarget;
+          outputTarget = new THREE.WebGLRenderTarget(equirectWidth, equirectHeight, {
+            format: THREE.RGBAFormat,
+            type: outputType,
+            minFilter: THREE.NearestFilter,
+            magFilter: THREE.NearestFilter,
+            generateMipmaps: false,
+          });
+
+          screenQuad = new THREE.Mesh(
+            new THREE.PlaneGeometry(2, 2),
+            new THREE.ShaderMaterial({
+              vertexShader: fullScreenVertexShader,
+              fragmentShader,
+              uniforms: {
+                cameraNear: { value: faceCamera.near },
+                cameraFar: { value: faceCamera.far },
+                tDepth: { value: tempDepthTarget.depthTexture },
+                ...extraUniforms,
+              },
+            })
+          );
+          screenScene.add(screenQuad);
+
+          for (let faceIndex = 0; faceIndex < 6; faceIndex += 1) {
+            const direction = cubeDirections[faceIndex].clone().applyQuaternion(panoQuaternion);
+            const up = cubeUps[faceIndex].clone().applyQuaternion(panoQuaternion);
+
+            faceCamera.position.copy(panoPosition);
+            faceCamera.up.copy(up);
+            faceCamera.lookAt(panoPosition.clone().add(direction));
+            faceCamera.updateMatrixWorld(true);
+
+            renderer.setRenderTarget(tempDepthTarget);
+            renderer.render(scene, faceCamera);
+
+            renderer.setRenderTarget(cubeTarget, faceIndex);
+            renderer.render(screenScene, screenCamera);
+          }
+
+          equirectQuad = new THREE.Mesh(
+            new THREE.PlaneGeometry(2, 2),
+            new THREE.ShaderMaterial({
+              vertexShader: fullScreenVertexShader,
+              fragmentShader: equirectFragmentShader,
+              uniforms: {
+                cubeMap: { value: cubeTarget.texture },
+              },
+            })
+          );
+          equirectScene.add(equirectQuad);
+
+          renderer.setRenderTarget(outputTarget);
+          renderer.render(equirectScene, equirectCamera);
+
+          const completedOutputTarget = outputTarget;
+          outputTarget = null;
+          return completedOutputTarget;
+        } finally {
+          renderer.setRenderTarget(null);
+          tempDepthTarget?.dispose();
+          cubeTarget?.dispose();
+          outputTarget?.dispose();
+          screenQuad?.geometry.dispose();
+          screenQuad?.material.dispose();
+          equirectQuad?.geometry.dispose();
+          equirectQuad?.material.dispose();
+        }
       }
 
       function withHiddenHelpers(callback) {
