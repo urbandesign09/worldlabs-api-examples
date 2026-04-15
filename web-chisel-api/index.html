@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Three.js Depth Equirect Pano Example</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+      :root {
+        color-scheme: light dark;
+        --page-bg: light-dark(#f3f3f3, #141414);
+        --page-fg: light-dark(#181818, #efefef);
+        --viewport-bg: light-dark(#ffffff, #1d1d1d);
+        --floor-color: light-dark(#ffffff, #242424);
+        --grid-center-color: light-dark(#000000, #ffffff);
+        --grid-color: light-dark(#000000, #ffffff);
+        --frustum-line-color: light-dark(#666666, #d0d0d0);
+        --surface: light-dark(rgba(255, 255, 255, 0.88), rgba(28, 28, 28, 0.88));
+        --surface-border: light-dark(rgba(0, 0, 0, 0.1), rgba(255, 255, 255, 0.12));
+        --button: light-dark(rgba(255, 255, 255, 0.92), rgba(34, 34, 34, 0.92));
+        --button-hover: light-dark(rgba(248, 248, 248, 0.98), rgba(42, 42, 42, 0.98));
+        --muted: light-dark(rgba(24, 24, 24, 0.72), rgba(239, 239, 239, 0.72));
+        --preview-bg: light-dark(#ececec, #232323);
+      }
+
+      @theme inline {
+        --color-page-bg: var(--page-bg);
+        --color-page-fg: var(--page-fg);
+        --color-surface: var(--surface);
+        --color-surface-border: var(--surface-border);
+        --color-button: var(--button);
+        --color-button-hover: var(--button-hover);
+        --color-muted: var(--muted);
+        --color-preview-bg: var(--preview-bg);
+      }
+    </style>
+  </head>
+  <body
+    class="m-0 h-full overflow-hidden bg-page-bg text-page-fg [font-family:-apple-system,BlinkMacSystemFont,'Segoe_UI',sans-serif]"
+  >
+    <div
+      id="theme-probe"
+      aria-hidden="true"
+      class="pointer-events-none fixed left-0 top-0 h-0 w-0 overflow-hidden opacity-0 [background-color:var(--viewport-bg)] [color:var(--floor-color)] [border-top:1px_solid_var(--grid-center-color)] [border-right:1px_solid_var(--grid-color)] [border-bottom:1px_solid_var(--frustum-line-color)]"
+    ></div>
+    <div id="app" class="relative h-full w-full box-border">
+      <canvas id="main-canvas" class="block h-full w-full"></canvas>
+
+      <section
+        id="output-panel"
+        class="absolute left-3 right-3 top-3 z-10 rounded-2xl border border-surface-border bg-surface p-4 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur-[10px] sm:left-4 sm:right-auto sm:top-4 sm:w-[min(420px,calc(100vw-32px))]"
+      >
+        <div class="mb-3 flex items-baseline justify-between gap-3">
+          <div>
+            <div class="text-[11px] uppercase tracking-[0.12em] text-muted">Output</div>
+            <h2 class="text-base font-semibold">Depth pano preview</h2>
+          </div>
+          <div class="text-xs text-muted">512 x 256 live</div>
+        </div>
+
+        <canvas
+          id="pano-preview"
+          width="512"
+          height="256"
+          class="block aspect-[2/1] w-full rounded-xl bg-preview-bg"
+        ></canvas>
+
+        <div class="mt-3 grid grid-cols-2 gap-2">
+          <div class="rounded-xl border border-black/8 bg-black/3 p-3 dark:border-white/10 dark:bg-white/4">
+            <div class="text-[11px] uppercase tracking-[0.1em] text-muted">min distance</div>
+            <div id="z-min" class="mt-1 font-mono text-sm">-</div>
+          </div>
+          <div class="rounded-xl border border-black/8 bg-black/3 p-3 dark:border-white/10 dark:bg-white/4">
+            <div class="text-[11px] uppercase tracking-[0.1em] text-muted">max distance</div>
+            <div id="z-max" class="mt-1 font-mono text-sm">-</div>
+          </div>
+        </div>
+
+        <button
+          id="download-btn"
+          type="button"
+          class="mt-3 w-full rounded-xl border border-surface-border bg-button px-3 py-2 text-sm font-medium hover:bg-button-hover"
+        >
+          Download Depth Pano PNG
+        </button>
+
+        <div id="preview-status" class="mt-3 hidden text-xs text-muted"></div>
+      </section>
+
+      <div class="absolute right-3 top-3 z-10 flex flex-col items-end gap-2 sm:right-4 sm:top-4">
+        <button
+          id="info-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="info-panel"
+          class="flex h-11 w-11 items-center justify-center rounded-full border border-surface-border bg-button text-lg font-semibold hover:bg-button-hover"
+        >
+          ?
+        </button>
+
+        <section
+          id="info-panel"
+          class="hidden w-[min(320px,calc(100vw-24px))] rounded-2xl border border-surface-border bg-surface p-4 shadow-[0_8px_24px_rgba(0,0,0,0.08)] backdrop-blur-[10px] sm:w-[min(360px,calc(100vw-32px))]"
+        >
+          <div class="text-[11px] uppercase tracking-[0.12em] text-muted">Info</div>
+          <h1 class="mt-1 text-lg font-semibold">Depth equirect example</h1>
+          <p class="mt-2 text-sm leading-6 text-muted">
+            The main canvas is a regular perspective viewport. The preview is rendered
+            from a separate pano camera in the scene, converted to radial depth, then
+            normalized with the measured min/max radial distance bounds,
+            and log encoded before preview/export.
+          </p>
+          <p class="mt-3 text-sm leading-6 text-muted">
+            Click a primitive or the pano camera frustum to attach the gizmo. Use
+            <code>T</code> for translate and <code>R</code> for rotate.
+          </p>
+        </section>
+      </div>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+      import { TransformControls } from "three/addons/controls/TransformControls.js";
+
+      const PREVIEW_EQUIRECT_WIDTH = 512;
+      const PREVIEW_EQUIRECT_HEIGHT = 256;
+      const PREVIEW_CUBE_RESOLUTION = 512;
+      const DOWNLOAD_EQUIRECT_WIDTH = 2048;
+      const DOWNLOAD_EQUIRECT_HEIGHT = 1024;
+      const DOWNLOAD_CUBE_RESOLUTION = 1024;
+
+      const mainCanvas = document.getElementById("main-canvas");
+      const previewCanvas = document.getElementById("pano-preview");
+      const previewContext = previewCanvas.getContext("2d");
+      previewContext.imageSmoothingEnabled = false;
+
+      const downloadBtn = document.getElementById("download-btn");
+      const zMinEl = document.getElementById("z-min");
+      const zMaxEl = document.getElementById("z-max");
+      const previewStatusEl = document.getElementById("preview-status");
+      const infoToggleEl = document.getElementById("info-toggle");
+      const infoPanelEl = document.getElementById("info-panel");
+      const themeProbeEl = document.getElementById("theme-probe");
+      const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
+
+      const renderer = new THREE.WebGLRenderer({
+        canvas: mainCanvas,
+        antialias: true,
+        preserveDrawingBuffer: false,
+      });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight, false);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0xffffff);
+      scene.fog = new THREE.Fog(0xffffff, 18, 44);
+
+      const viewportCamera = new THREE.PerspectiveCamera(
+        60,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        100
+      );
+      viewportCamera.position.set(8.5, 5.5, 9.5);
+
+      const panoCamera = new THREE.PerspectiveCamera(90, 1, 0.1, 40);
+      panoCamera.name = "Pano Camera";
+      panoCamera.position.set(0, 1.75, 0);
+      panoCamera.rotation.order = "YXZ";
+      panoCamera.rotation.set(0.06, 0.3, 0);
+      scene.add(panoCamera);
+
+      const controls = new OrbitControls(viewportCamera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.target.set(0, 1.7, 0);
+
+      const transformControls = new TransformControls(viewportCamera, renderer.domElement);
+      transformControls.setSpace("world");
+      transformControls.setSize(0.72);
+      const transformGizmo = transformControls.getHelper();
+      scene.add(transformGizmo);
+
+      const selectable = [];
+      const movableMeshes = [];
+      const pickRaycaster = new THREE.Raycaster();
+      const pointerNdc = new THREE.Vector2();
+      const pointerDown = new THREE.Vector2();
+      let selectedObject = null;
+      let transformDragging = false;
+      let panoDirty = true;
+      let panoRefreshQueued = false;
+      let panoRenderError = null;
+
+      const cameraMarkerMaterial = new THREE.MeshBasicMaterial({
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+      const cameraPickMarker = new THREE.Mesh(
+        new THREE.SphereGeometry(0.24, 12, 12),
+        cameraMarkerMaterial
+      );
+      cameraPickMarker.name = "Pano Camera Pick Proxy";
+      cameraPickMarker.position.set(0, 0, 0);
+      panoCamera.add(cameraPickMarker);
+
+      const frustumLineMaterial = new THREE.LineBasicMaterial({
+        color: 0x5f5f5f,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const panoCameraFrustum = createPanoCameraFrustum();
+      panoCamera.add(panoCameraFrustum);
+
+      const sceneTheme = {
+        floorMaterial: null,
+        grid: null,
+      };
+
+      const cubeDirections = [
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(-1, 0, 0),
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(0, -1, 0),
+        new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(0, 0, -1),
+      ];
+
+      const cubeUps = [
+        new THREE.Vector3(0, -1, 0),
+        new THREE.Vector3(0, -1, 0),
+        new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(0, 0, -1),
+        new THREE.Vector3(0, -1, 0),
+        new THREE.Vector3(0, -1, 0),
+      ];
+
+      const fullScreenVertexShader = `
+        varying vec2 vUv;
+
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `;
+
+      const equirectFragmentShader = `
+        #define PI 3.14159265359
+
+        uniform samplerCube cubeMap;
+        varying vec2 vUv;
+
+        void main() {
+          float theta = vUv.x * 2.0 * PI - PI;
+          float phi = (1.0 - vUv.y) * PI;
+
+          vec3 direction = vec3(
+            sin(phi) * sin(theta),
+            cos(phi),
+            -cos(theta) * sin(phi)
+          );
+
+          gl_FragColor = textureCube(cubeMap, direction);
+        }
+      `;
+
+      const inverseDepthFragmentShader = `
+        #include <packing>
+
+        varying vec2 vUv;
+        uniform sampler2D tDepth;
+        uniform float cameraNear;
+        uniform float cameraFar;
+
+        void main() {
+          float fragCoordZ = texture2D(tDepth, vUv).x;
+
+          if (fragCoordZ >= 0.99999) {
+            gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+          }
+
+          float viewZ = perspectiveDepthToViewZ(fragCoordZ, cameraNear, cameraFar);
+          vec2 ndc = vUv * 2.0 - 1.0;
+          float rayLength = length(vec3(ndc, -1.0));
+          float radialDepth = -viewZ * rayLength;
+          float inverseDepth = 1.0 / max(radialDepth, 0.001);
+
+          gl_FragColor = vec4(inverseDepth, inverseDepth, inverseDepth, 1.0);
+        }
+      `;
+
+      const logDepthFragmentShader = `
+        #include <packing>
+
+        varying vec2 vUv;
+        uniform sampler2D tDepth;
+        uniform float cameraNear;
+        uniform float cameraFar;
+        uniform float zMin;
+        uniform float zMax;
+
+        void main() {
+          float fragCoordZ = texture2D(tDepth, vUv).x;
+
+          if (fragCoordZ >= 0.99999) {
+            gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+          }
+
+          float viewZ = perspectiveDepthToViewZ(fragCoordZ, cameraNear, cameraFar);
+          vec2 ndc = vUv * 2.0 - 1.0;
+          float rayLength = length(vec3(ndc, -1.0));
+          float radialDepth = -viewZ * rayLength;
+
+          float safeZMin = max(zMin, 0.001);
+          float safeZMax = max(zMax, safeZMin + 0.001);
+          float logZ = log(max(radialDepth, 0.001));
+          float logZMin = log(safeZMin);
+          float logZMax = log(safeZMax);
+          float denom = max(logZMax - logZMin, 0.00001);
+
+          float normalized = clamp((logZ - logZMin) / denom, 0.0, 1.0);
+          float encoded = 1.0 - normalized;
+
+          gl_FragColor = vec4(encoded, encoded, encoded, 1.0);
+        }
+      `;
+
+      addLighting();
+      addSceneGeometry();
+      syncSceneThemeFromCss();
+      setTransformMode("translate");
+      selectObject(panoCamera);
+      updateViewportSize();
+      refreshPanoPreview();
+
+      window.addEventListener("resize", () => {
+        updateViewportSize();
+        markPanoDirty();
+      });
+
+      themeMedia.addEventListener("change", () => {
+        syncSceneThemeFromCss();
+        markPanoDirty();
+      });
+
+      infoToggleEl.addEventListener("click", () => {
+        const isHidden = infoPanelEl.classList.toggle("hidden");
+        infoToggleEl.setAttribute("aria-expanded", String(!isHidden));
+      });
+
+      transformControls.addEventListener("dragging-changed", (event) => {
+        transformDragging = event.value;
+        controls.enabled = !event.value;
+      });
+
+      transformControls.addEventListener("change", () => {
+        markPanoDirty();
+      });
+
+      transformControls.addEventListener("objectChange", () => {
+        markPanoDirty();
+      });
+
+      downloadBtn.addEventListener("click", async () => {
+        downloadBtn.disabled = true;
+        downloadBtn.textContent = "Rendering PNG...";
+
+        try {
+          const renderResult = renderDepthPano({
+            cubeResolution: DOWNLOAD_CUBE_RESOLUTION,
+            equirectWidth: DOWNLOAD_EQUIRECT_WIDTH,
+            equirectHeight: DOWNLOAD_EQUIRECT_HEIGHT,
+          });
+
+          updateStats(renderResult.stats);
+
+          const exportCanvas = document.createElement("canvas");
+          exportCanvas.width = DOWNLOAD_EQUIRECT_WIDTH;
+          exportCanvas.height = DOWNLOAD_EQUIRECT_HEIGHT;
+
+          drawByteRenderTargetToCanvas(
+            renderResult.target,
+            exportCanvas,
+            DOWNLOAD_EQUIRECT_WIDTH,
+            DOWNLOAD_EQUIRECT_HEIGHT
+          );
+
+          renderResult.target.dispose();
+
+          const blob = await new Promise((resolve) => {
+            exportCanvas.toBlob(resolve, "image/png");
+          });
+
+          if (!blob) {
+            throw new Error("Canvas export returned no PNG data.");
+          }
+
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(blob);
+          link.download = `depth-pano-log-${Date.now()}.png`;
+          link.click();
+
+          setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        } catch (error) {
+          console.error(error);
+          showPreviewStatus("PNG export failed. Check the console for details.");
+        } finally {
+          downloadBtn.disabled = false;
+          downloadBtn.textContent = "Download Depth Pano PNG";
+        }
+      });
+
+      renderer.domElement.addEventListener("pointerdown", (event) => {
+        pointerDown.set(event.clientX, event.clientY);
+      });
+
+      renderer.domElement.addEventListener("pointerup", (event) => {
+        if (transformDragging) {
+          return;
+        }
+
+        if (pointerDown.distanceTo(new THREE.Vector2(event.clientX, event.clientY)) > 4) {
+          return;
+        }
+
+        const picked = pickSelectable(event.clientX, event.clientY);
+        if (picked) {
+          selectObject(picked);
+        }
+      });
+
+      window.addEventListener("keydown", (event) => {
+        if (event.target instanceof HTMLSelectElement) {
+          return;
+        }
+
+        if (event.code === "KeyT") {
+          setTransformMode("translate");
+        } else if (event.code === "KeyR") {
+          setTransformMode("rotate");
+        }
+      });
+
+      function addLighting() {
+        const hemi = new THREE.HemisphereLight(0xe9e9e9, 0x4a4a4a, 1.05);
+        scene.add(hemi);
+
+        const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+        sun.position.set(8, 14, 6);
+        sun.castShadow = true;
+        sun.shadow.mapSize.set(2048, 2048);
+        sun.shadow.camera.left = -16;
+        sun.shadow.camera.right = 16;
+        sun.shadow.camera.top = 16;
+        sun.shadow.camera.bottom = -16;
+        scene.add(sun);
+
+        const grid = new THREE.GridHelper(30, 30, 0x8c8c8c, 0x555555);
+        grid.position.y = 0.001;
+        scene.add(grid);
+        const gridMaterials = Array.isArray(grid.material) ? grid.material : [grid.material];
+        for (const material of gridMaterials) {
+          material.transparent = true;
+          material.opacity = 0.08;
+        }
+        sceneTheme.grid = grid;
+
+        const floor = new THREE.Mesh(
+          new THREE.PlaneGeometry(30, 30),
+          new THREE.MeshStandardMaterial({
+            color: 0xf2f2f2,
+            metalness: 0.1,
+            roughness: 0.98,
+            transparent: true,
+            opacity: 0.18,
+          })
+        );
+        floor.name = "Floor";
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+        sceneTheme.floorMaterial = floor.material;
+      }
+
+      function addSceneGeometry() {
+        selectable.push({
+          label: "Pano Camera",
+          object: panoCamera,
+          pickTarget: cameraPickMarker,
+        });
+
+        addSelectablePrimitive(
+          "Tall Box",
+          new THREE.BoxGeometry(1.2, 3.2, 1.1),
+          0xe86d5d,
+          [-3.1, 1.6, -1.8]
+        );
+        addSelectablePrimitive(
+          "Wide Box",
+          new THREE.BoxGeometry(2.2, 1.2, 1.6),
+          0x48b06a,
+          [2.6, 0.6, -2.2]
+        );
+        addSelectablePrimitive(
+          "Sphere",
+          new THREE.SphereGeometry(0.95, 40, 24),
+          0xe0a93c,
+          [1.25, 0.95, 2.9]
+        );
+        addSelectablePrimitive(
+          "Cylinder",
+          new THREE.CylinderGeometry(0.8, 0.8, 2.5, 28),
+          0x3f9db7,
+          [-1.2, 1.25, 3.6]
+        );
+        addSelectablePrimitive(
+          "Torus Knot",
+          new THREE.TorusKnotGeometry(0.7, 0.24, 180, 28),
+          0x8b69d6,
+          [4.2, 1.2, 1.5]
+        );
+      }
+
+      function syncSceneThemeFromCss() {
+        const probeStyles = getComputedStyle(themeProbeEl);
+        const viewportBg = probeStyles.backgroundColor;
+        const floorColor = probeStyles.color;
+        const gridCenterColor = probeStyles.borderTopColor;
+        const gridColor = probeStyles.borderRightColor;
+        const frustumLineColor = probeStyles.borderBottomColor;
+
+        scene.background.setStyle(viewportBg);
+        scene.fog.color.setStyle(viewportBg);
+
+        if (sceneTheme.floorMaterial) {
+          sceneTheme.floorMaterial.color.setStyle(floorColor);
+        }
+
+        if (sceneTheme.grid) {
+          const gridMaterials = Array.isArray(sceneTheme.grid.material)
+            ? sceneTheme.grid.material
+            : [sceneTheme.grid.material];
+
+          if (gridMaterials[0]?.color) {
+            gridMaterials[0].color.setStyle(gridCenterColor);
+          }
+
+          if (gridMaterials[1]?.color) {
+            gridMaterials[1].color.setStyle(gridColor);
+          } else if (gridMaterials[0]?.color) {
+            gridMaterials[0].color.setStyle(gridColor);
+          }
+        }
+
+        frustumLineMaterial.color.setStyle(frustumLineColor);
+      }
+
+      function addSelectablePrimitive(name, geometry, color, position) {
+        const material = new THREE.MeshStandardMaterial({
+          color,
+          roughness: 0.48,
+          metalness: 0.12,
+          emissive: 0x000000,
+        });
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = name;
+        mesh.position.fromArray(position);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+
+        movableMeshes.push(mesh);
+        selectable.push({ label: name, object: mesh, pickTarget: mesh });
+      }
+
+      function createPanoCameraFrustum() {
+        const group = new THREE.Group();
+        const frustumScale = 0.62;
+        const horizontalFovRadians = THREE.MathUtils.degToRad(90);
+        const verticalFovRadians =
+          2 * Math.atan(Math.tan(horizontalFovRadians * 0.5) / panoCamera.aspect);
+        const width = 2 * Math.tan(horizontalFovRadians * 0.5) * frustumScale;
+        const height = 2 * Math.tan(verticalFovRadians * 0.5) * frustumScale;
+        const z = -frustumScale;
+        const linePoints = [
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(width / 2, height / 2, z),
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(-width / 2, height / 2, z),
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(-width / 2, -height / 2, z),
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(width / 2, -height / 2, z),
+          new THREE.Vector3(width / 2, height / 2, z),
+          new THREE.Vector3(-width / 2, height / 2, z),
+          new THREE.Vector3(-width / 2, -height / 2, z),
+          new THREE.Vector3(width / 2, -height / 2, z),
+          new THREE.Vector3(width / 2, height / 2, z),
+        ];
+
+        const linesGeometry = new THREE.BufferGeometry();
+        linesGeometry.setAttribute(
+          "position",
+          new THREE.Float32BufferAttribute(
+            linePoints.flatMap((point) => [point.x, point.y, point.z]),
+            3
+          )
+        );
+
+        const lines = new THREE.Line(linesGeometry, frustumLineMaterial);
+        group.add(lines);
+
+        return group;
+      }
+
+      function selectObject(object) {
+        selectedObject = object;
+        transformControls.attach(object);
+        updateSelectionHighlight();
+        markPanoDirty();
+      }
+
+      function updateSelectionHighlight() {
+        movableMeshes.forEach((mesh) => {
+          mesh.material.emissive.setHex(0x000000);
+        });
+
+        frustumLineMaterial.opacity = 0.9;
+
+        if (selectedObject?.isMesh && selectedObject.material.emissive) {
+          selectedObject.material.emissive.setHex(0x202020);
+        }
+
+        if (selectedObject === panoCamera) {
+          frustumLineMaterial.opacity = 1.0;
+        }
+      }
+
+      function pickSelectable(clientX, clientY) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        pointerNdc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+        pointerNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+        pickRaycaster.setFromCamera(pointerNdc, viewportCamera);
+
+        const intersections = pickRaycaster.intersectObjects(
+          selectable.map((entry) => entry.pickTarget),
+          true
+        );
+
+        for (const intersection of intersections) {
+          const matched = selectable.find(
+            (entry) =>
+              intersection.object === entry.pickTarget ||
+              entry.pickTarget.children.includes(intersection.object) ||
+              entry.pickTarget === intersection.object.parent
+          );
+
+          if (matched) {
+            return matched.object;
+          }
+        }
+
+        return null;
+      }
+
+      function setTransformMode(mode) {
+        transformControls.setMode(mode);
+      }
+
+      function updateViewportSize() {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        viewportCamera.aspect = width / height;
+        viewportCamera.updateProjectionMatrix();
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setSize(width, height, false);
+      }
+
+      function markPanoDirty() {
+        panoDirty = true;
+      }
+
+      function updateStats(stats) {
+        zMinEl.textContent = stats.zMin.toFixed(4);
+        zMaxEl.textContent = stats.zMax.toFixed(4);
+      }
+
+      function clearPreviewStatus() {
+        previewStatusEl.textContent = "";
+        previewStatusEl.classList.add("hidden");
+      }
+
+      function showPreviewStatus(message) {
+        previewStatusEl.textContent = message;
+        previewStatusEl.classList.remove("hidden");
+      }
+
+      function refreshPanoPreview() {
+        if (panoRefreshQueued) {
+          return;
+        }
+
+        panoRefreshQueued = true;
+
+        requestAnimationFrame(() => {
+          panoRefreshQueued = false;
+
+          try {
+            const renderResult = renderDepthPano({
+              cubeResolution: PREVIEW_CUBE_RESOLUTION,
+              equirectWidth: PREVIEW_EQUIRECT_WIDTH,
+              equirectHeight: PREVIEW_EQUIRECT_HEIGHT,
+            });
+
+            panoRenderError = null;
+            updateStats(renderResult.stats);
+            clearPreviewStatus();
+            drawByteRenderTargetToCanvas(
+              renderResult.target,
+              previewCanvas,
+              PREVIEW_EQUIRECT_WIDTH,
+              PREVIEW_EQUIRECT_HEIGHT
+            );
+            renderResult.target.dispose();
+          } catch (error) {
+            panoRenderError = error;
+            console.error(error);
+            showPreviewStatus(
+              "Pano render failed. Float depth readback may be unsupported in this browser/GPU."
+            );
+          }
+        });
+      }
+
+      function drawByteRenderTargetToCanvas(target, canvas, width, height) {
+        const pixelBuffer = new Uint8Array(width * height * 4);
+        renderer.readRenderTargetPixels(target, 0, 0, width, height, pixelBuffer);
+
+        const imageData = new ImageData(width, height);
+        const dst = imageData.data;
+
+        for (let y = 0; y < height; y += 1) {
+          const srcOffset = (height - 1 - y) * width * 4;
+          const dstOffset = y * width * 4;
+          dst.set(pixelBuffer.subarray(srcOffset, srcOffset + width * 4), dstOffset);
+        }
+
+        canvas.getContext("2d").putImageData(imageData, 0, 0);
+      }
+
+      function renderDepthPano({ cubeResolution, equirectWidth, equirectHeight }) {
+        return withHiddenHelpers(() => {
+          const inverseTarget = renderEquirectFromDepth({
+            cubeResolution,
+            equirectWidth,
+            equirectHeight,
+            outputType: THREE.FloatType,
+            fragmentShader: inverseDepthFragmentShader,
+          });
+
+          const stats = computeDepthStats(inverseTarget, equirectWidth, equirectHeight);
+          inverseTarget.dispose();
+
+          const logTarget = renderEquirectFromDepth({
+            cubeResolution,
+            equirectWidth,
+            equirectHeight,
+            outputType: THREE.UnsignedByteType,
+            fragmentShader: logDepthFragmentShader,
+            extraUniforms: {
+              zMin: { value: stats.zMin },
+              zMax: { value: stats.zMax },
+            },
+          });
+
+          return { target: logTarget, stats };
+        });
+      }
+
+      function computeDepthStats(renderTarget, width, height) {
+        const floatData = new Float32Array(width * height * 4);
+        renderer.readRenderTargetPixels(renderTarget, 0, 0, width, height, floatData);
+
+        let maxInverseDepth = 0;
+        let minInverseDepth = Infinity;
+
+        for (let i = 0; i < floatData.length; i += 4) {
+          const value = floatData[i];
+          if (value <= 0 || !Number.isFinite(value)) {
+            continue;
+          }
+
+          if (value > maxInverseDepth) {
+            maxInverseDepth = value;
+          }
+
+          if (value < minInverseDepth) {
+            minInverseDepth = value;
+          }
+        }
+
+        if (!(maxInverseDepth > 0) || !(minInverseDepth < Infinity)) {
+          return {
+            zMin: panoCamera.near,
+            zMax: panoCamera.far,
+          };
+        }
+
+        return {
+          zMin: 1 / maxInverseDepth,
+          zMax: 1 / minInverseDepth,
+        };
+      }
+
+      function renderEquirectFromDepth({
+        cubeResolution,
+        equirectWidth,
+        equirectHeight,
+        outputType,
+        fragmentShader,
+        extraUniforms = {},
+      }) {
+        const tempDepthTarget = new THREE.WebGLRenderTarget(cubeResolution, cubeResolution);
+        tempDepthTarget.texture.minFilter = THREE.NearestFilter;
+        tempDepthTarget.texture.magFilter = THREE.NearestFilter;
+        tempDepthTarget.texture.generateMipmaps = false;
+        tempDepthTarget.depthTexture = new THREE.DepthTexture(
+          cubeResolution,
+          cubeResolution,
+          THREE.UnsignedShortType
+        );
+        tempDepthTarget.depthTexture.format = THREE.DepthFormat;
+        tempDepthTarget.depthTexture.type = THREE.UnsignedShortType;
+
+        const cubeTarget = new THREE.WebGLCubeRenderTarget(cubeResolution, {
+          format: THREE.RGBAFormat,
+          type: outputType,
+          generateMipmaps: false,
+          minFilter: THREE.NearestFilter,
+          magFilter: THREE.NearestFilter,
+        });
+
+        const outputTarget = new THREE.WebGLRenderTarget(equirectWidth, equirectHeight, {
+          format: THREE.RGBAFormat,
+          type: outputType,
+          minFilter: THREE.NearestFilter,
+          magFilter: THREE.NearestFilter,
+          generateMipmaps: false,
+        });
+
+        const faceCamera = new THREE.PerspectiveCamera(90, 1, panoCamera.near, panoCamera.far);
+        const panoPosition = new THREE.Vector3();
+        const panoQuaternion = new THREE.Quaternion();
+        panoCamera.getWorldPosition(panoPosition);
+        panoCamera.getWorldQuaternion(panoQuaternion);
+
+        const screenScene = new THREE.Scene();
+        const screenCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        const screenQuad = new THREE.Mesh(
+          new THREE.PlaneGeometry(2, 2),
+          new THREE.ShaderMaterial({
+            vertexShader: fullScreenVertexShader,
+            fragmentShader,
+            uniforms: {
+              cameraNear: { value: faceCamera.near },
+              cameraFar: { value: faceCamera.far },
+              tDepth: { value: tempDepthTarget.depthTexture },
+              ...extraUniforms,
+            },
+          })
+        );
+        screenScene.add(screenQuad);
+
+        for (let faceIndex = 0; faceIndex < 6; faceIndex += 1) {
+          const direction = cubeDirections[faceIndex].clone().applyQuaternion(panoQuaternion);
+          const up = cubeUps[faceIndex].clone().applyQuaternion(panoQuaternion);
+
+          faceCamera.position.copy(panoPosition);
+          faceCamera.up.copy(up);
+          faceCamera.lookAt(panoPosition.clone().add(direction));
+          faceCamera.updateMatrixWorld(true);
+
+          renderer.setRenderTarget(tempDepthTarget);
+          renderer.render(scene, faceCamera);
+
+          renderer.setRenderTarget(cubeTarget, faceIndex);
+          renderer.render(screenScene, screenCamera);
+        }
+
+        const equirectScene = new THREE.Scene();
+        const equirectCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        const equirectQuad = new THREE.Mesh(
+          new THREE.PlaneGeometry(2, 2),
+          new THREE.ShaderMaterial({
+            vertexShader: fullScreenVertexShader,
+            fragmentShader: equirectFragmentShader,
+            uniforms: {
+              cubeMap: { value: cubeTarget.texture },
+            },
+          })
+        );
+        equirectScene.add(equirectQuad);
+
+        renderer.setRenderTarget(outputTarget);
+        renderer.render(equirectScene, equirectCamera);
+        renderer.setRenderTarget(null);
+
+        tempDepthTarget.dispose();
+        cubeTarget.dispose();
+        screenQuad.geometry.dispose();
+        screenQuad.material.dispose();
+        equirectQuad.geometry.dispose();
+        equirectQuad.material.dispose();
+
+        return outputTarget;
+      }
+
+      function withHiddenHelpers(callback) {
+        const previousTransformVisibility = transformGizmo.visible;
+        const previousFrustumVisibility = panoCameraFrustum.visible;
+        const previousCameraMarkerVisibility = cameraPickMarker.visible;
+        transformGizmo.visible = false;
+        panoCameraFrustum.visible = false;
+        cameraPickMarker.visible = false;
+
+        try {
+          return callback();
+        } finally {
+          transformGizmo.visible = previousTransformVisibility;
+          panoCameraFrustum.visible = previousFrustumVisibility;
+          cameraPickMarker.visible = previousCameraMarkerVisibility;
+          renderer.setRenderTarget(null);
+        }
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        controls.update();
+        renderer.render(scene, viewportCamera);
+
+        if (panoDirty && !panoRenderError) {
+          panoDirty = false;
+          refreshPanoPreview();
+        } else if (panoDirty && panoRenderError) {
+          panoDirty = false;
+          refreshPanoPreview();
+        }
+      }
+
+      animate();
+    </script>
+  </body>
+</html>
