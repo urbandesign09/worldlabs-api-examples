@@ -16,6 +16,7 @@ export WLT_API_KEY=`cat my-api-key.txt`
 - `generate-world-from-text.js` / `generate-world-from-text.py`: CLI scripts to generate a world from a text prompt.
 - `generate-world-from-image.js` / `generate-world-from-image.py`: CLI scripts to generate a world from an image file.
 - `web-generate-world/`: NodeJS server + web UI to generate worlds from text/images and list/view worlds.
+- `web-chisel-depth-png/`: Browser example for preparing depth pano PNG inputs for Chisel.
 
 ## Run the CLI examples
 
@@ -46,3 +47,12 @@ Then open [http://localhost:3000/](http://localhost:3000/) in your browser.
 Paste your API key into the input field and click "List Worlds" at the bottom to see all your generated worlds. Enter a text prompt or select / drag an image prompt and click "Generate World".
 
 **Warning:** This is for illustration purposes only. You probably want to keep your API key secret on a server you control and make the API requests from there. Never embed your API key directly in your client-side code, or others can see it in their browser.
+
+## Run the Chisel web example
+
+```bash
+cd web-chisel-depth-png
+npm start
+```
+
+Then open [http://localhost:3001/](http://localhost:3001/) in your browser.
