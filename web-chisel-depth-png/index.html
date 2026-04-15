@@ -956,10 +956,7 @@
         controls.update();
         renderer.render(scene, viewportCamera);
 
-        if (panoDirty && !panoRenderError) {
-          panoDirty = false;
-          refreshPanoPreview();
-        } else if (panoDirty && panoRenderError) {
+        if (panoDirty) {
           panoDirty = false;
           refreshPanoPreview();
         }
