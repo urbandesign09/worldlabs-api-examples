@@ -1,9 +1,0 @@
-{
-  "name": "web-chisel-depth-png",
-  "version": "0.1.0",
-  "description": "Browser example for preparing depth pano PNG inputs for Chisel",
-  "type": "module",
-  "scripts": {
-    "start": "node server.js"
-  }
-}
