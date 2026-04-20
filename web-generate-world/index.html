@@ -192,6 +192,19 @@
         viewWorldButton.onclick = () => viewWorld(world);
         row.querySelector(".world-actions")?.appendChild(viewWorldButton);
 
+        const spzUrl = world?.assets?.splats?.spz_urls?.full_res;
+        if (spzUrl) {
+          const downloadButton = document.createElement("button");
+          downloadButton.textContent = "Download SPZ";
+          downloadButton.onclick = () => {
+            const a = document.createElement("a");
+            a.href = spzUrl;
+            a.download = `${world.world_id}.spz`;
+            a.click();
+          };
+          row.querySelector(".world-actions")?.appendChild(downloadButton);
+        }
+
         return row;
       }
 
