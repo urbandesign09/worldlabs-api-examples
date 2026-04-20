@@ -147,6 +147,7 @@
           image_prompt: imageBytes ? {
             source: "data_base64",
             data_base64: imageBytes.toBase64(),
+            is_pano: true,
           } : null,
         };
         const operation = await apiFetch("worlds:generate", {
