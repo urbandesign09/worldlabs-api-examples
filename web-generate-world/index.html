@@ -144,6 +144,7 @@
           type: imageBytes ? "image" : "text",
           text_prompt: textPrompt || null,
           disable_recaption: !autoEnhance,
+          is_pano: true,
           image_prompt: imageBytes ? {
             source: "data_base64",
             data_base64: imageBytes.toBase64(),
@@ -154,7 +155,7 @@
           method: "POST",
           body: JSON.stringify({
             world_prompt: worldPrompt,
-            model: draft ? "Marble 1.0 Draft" : "Marble 1.0 Draft",
+            model: draft ? "marble-1.0-draft" : "marble-1.0-draft",
           }),
         });
         return operation.operation_id;
